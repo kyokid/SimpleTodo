@@ -1,102 +1,109 @@
 package com.codepath.simpletodo;
 
-import android.app.Activity;
-import android.content.Intent;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.DialogInterface;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListView;
-import android.widget.Toast;
 
-import org.apache.commons.io.FileUtils;
-
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
+import com.codepath.simpletodo.adapter.ItemAdapter;
+import com.codepath.simpletodo.constant.Const;
+import com.codepath.simpletodo.database.DBController;
+import com.codepath.simpletodo.model.Item;
 
 public class MainActivity extends AppCompatActivity {
-    ArrayList<String> items;
-    ArrayAdapter<String> itemsAdapter;
-    ListView lvItems;
+    private ListView mListView;
+    private Button btnAddItem;
+    private DBController dbCon;
+    private List<Item> mItemList = new ArrayList<>();
+    private EditText etAddItem;
+    final Context mContext = this;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        lvItems = (ListView) findViewById(R.id.lvItems);
-        items = new ArrayList<>();
-        readItems();
-        itemsAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, items);
-        lvItems.setAdapter(itemsAdapter);
-        setupListViewListener();
-        editItem();
-    }
+        dbCon = new DBController(MainActivity.this);
+        dbCon.open();
+        mListView = (ListView) findViewById(R.id.lvItems);
+        mItemList = dbCon.loadAll();
+        final ItemAdapter itemAdapter = new ItemAdapter(this, mItemList);
+        mListView.setAdapter(itemAdapter);
 
-    private void setupListViewListener() {
-        lvItems.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+        mListView.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
-                items.remove(position);
-                itemsAdapter.notifyDataSetChanged();
-                writeItems();
+                dbCon.open();
+                dbCon.deleteItem(mItemList.get(position).getItemId());
+                mItemList.remove(position);
+                itemAdapter.notifyDataSetChanged();
                 return true;
             }
         });
-    }
 
-    public void onAddItem(View v) {
-        EditText etNewItem = (EditText) findViewById(R.id.etNewItem);
-        String itemText = etNewItem.getText().toString();
-        itemsAdapter.add(itemText);
-        etNewItem.setText("");
-        writeItems();
-    }
-
-    private void readItems() {
-        File fileDir = getFilesDir();
-        File todoFile = new File(fileDir, "todo.txt");
-        try {
-            items = new ArrayList<String>(FileUtils.readLines(todoFile));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void writeItems() {
-        File fileDir = getFilesDir();
-        File todoFile = new File(fileDir, "todo.txt");
-        try {
-            FileUtils.writeLines(todoFile, items);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void editItem() {
-        lvItems.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+        btnAddItem = (Button) findViewById(R.id.btnAddItem);
+        etAddItem = (EditText) findViewById(R.id.etNewItem);
+        btnAddItem.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                Intent intent = new Intent(MainActivity.this, EditItemActivity.class);
-                String item = (String) lvItems.getItemAtPosition(position);
-                intent.putExtra("ITEM", item);
-                intent.putExtra("POSITION", position);
-                startActivityForResult(intent, 1);
+            public void onClick(View v) {
+                String text = etAddItem.getText().toString().trim();
+                if(!text.isEmpty()) {
+                    Item item = new Item(text);
+                    dbCon.open();
+                    long id = dbCon.addItem(item);
+                    item.setItemId(id);
+                    etAddItem.setText(Const.BLANK);
+                    mItemList.add(item);
+                    itemAdapter.notifyDataSetChanged();
+                }
             }
         });
+
+        mListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, final int position, long id) {
+                AlertDialog.Builder alert = new AlertDialog.Builder(MainActivity.this);
+                alert.setTitle(getString(R.string.editItemTitle));
+                alert.setMessage(getString(R.string.editItemMessage));
+                final EditText input = new EditText(mContext);
+                input.setText(mItemList.get(position).getItemName());
+                input.setSelection(input.getText().length());
+                alert.setView(input);
+                alert.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String edited = input.getEditableText().toString();
+                        if (!edited.isEmpty()) {
+                            Item item = mItemList.get(position);
+                            item.setItemName(edited);
+                            dbCon.open();
+                            dbCon.updateItem(item.getItemId(), edited);
+                            itemAdapter.notifyDataSetChanged();
+
+                        }
+                    }
+                });
+                alert.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        dialog.cancel();
+                    }
+                });
+
+                AlertDialog alertDialog = alert.create();
+                alertDialog.show();
+            }
+        });
+
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if(requestCode == 1 && resultCode == Activity.RESULT_OK) {
-                String result = data.getExtras().getString("result");
-            int position = data.getExtras().getInt("position");
-            itemsAdapter.remove(items.get(position));
-            itemsAdapter.insert(result, position);
-            itemsAdapter.notifyDataSetChanged();
-            writeItems();
-            }
-    }
+
+
 }
